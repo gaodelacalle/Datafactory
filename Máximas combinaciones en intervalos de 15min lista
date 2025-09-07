@@ -1,0 +1,72 @@
+import pandas as pd
+
+# Load the CSV file
+try:
+    df = pd.read_csv('/Users/gustavoortiz/Downloads/file.csv')
+
+    # Filter for 'correctPasses' events and drop any passes without a receiver
+    correct_passes_df = df[df['event_type'] == 'correctPasses'].copy()
+    correct_passes_df.dropna(subset=['receiver_name'], inplace=True)
+
+    # Convert minute and second to total seconds
+    correct_passes_df['total_seconds'] = correct_passes_df['minute'] * 60 + correct_passes_df['second']
+
+    # Define the 15-minute intervals
+    max_time = correct_passes_df['total_seconds'].max()
+    bins = range(0, int(max_time) + 900, 900)
+    labels = [f"{m // 60}-{(m + 900) // 60} minutes" for m in bins[:-1]]
+    
+    # Create a new column 'time_interval'
+    correct_passes_df['time_interval'] = pd.cut(correct_passes_df['total_seconds'], bins=bins, labels=labels, right=False)
+
+    # Group the passes by time interval, team, passer, and receiver
+    combinations_df = correct_passes_df.groupby(
+        ['time_interval', 'team_name', 'player_name', 'receiver_name']
+    ).size().reset_index(name='passes')
+
+    # ANSI color codes for a fancier look
+    class bcolors:
+        HEADER = '\033[95m'
+        OKBLUE = '\033[94m'
+        OKCYAN = '\033[96m'
+        OKGREEN = '\033[92m'
+        WARNING = '\033[93m'
+        FAIL = '\033[91m'
+        ENDC = '\033[0m'
+        BOLD = '\033[1m'
+        UNDERLINE = '\033[4m'
+
+    # Get the unique intervals and teams from the data
+    intervals = combinations_df['time_interval'].unique()
+    teams = combinations_df['team_name'].unique()
+
+    # Iterate through each interval and each team to display top combinations
+    for interval in sorted(intervals, key=lambda x: int(x.split('-')[0])):
+        print(f"\n\n{bcolors.BOLD}======================================================={bcolors.ENDC}")
+        print(f"{bcolors.BOLD}--- Top Pass Combinations for {interval} ---{bcolors.ENDC}")
+        print(f"{bcolors.BOLD}======================================================={bcolors.ENDC}")
+
+        for team in teams:
+            # Filter data for the current interval and team
+            team_combinations = combinations_df[
+                (combinations_df['time_interval'] == interval) & (combinations_df['team_name'] == team)
+            ].sort_values(by='passes', ascending=False)
+            
+            print(f"\n{bcolors.BOLD}--- {team} ---{bcolors.ENDC}")
+            
+            if team_combinations.empty:
+                print(f"{bcolors.WARNING}No 'correctPasses' data found for {team} in this interval.{bcolors.ENDC}")
+            else:
+                # Manually create the header string to ensure alignment
+                header = f"{'Combination':<40}{'Passes':<10}"
+                print(header)
+                
+                # Print the top 10 combinations with a clean format
+                for _, row in team_combinations.head(10).iterrows():
+                    combo_text = f"{row['player_name']} → {row['receiver_name']}"
+                    print(f"{bcolors.OKGREEN}{combo_text:<40}{bcolors.ENDC}{bcolors.BOLD}{row['passes']:<10}{bcolors.ENDC}")
+
+except FileNotFoundError:
+    print("Error: 'match_data.csv' file not found. Please ensure the file is in the same directory as the script.")
+except Exception as e:
+    print(f"An error occurred: {e}")
