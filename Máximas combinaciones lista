@@ -1,0 +1,62 @@
+import pandas as pd
+
+# Load the CSV file
+try:
+    df = pd.read_csv('/Users/gustavoortiz/Downloads/DatafactoryData.csv')
+
+    # Filter for 'correctPasses' events and drop any passes without a receiver
+    correct_passes_df = df[df['event_type'] == 'correctPasses'].copy()
+    correct_passes_df.dropna(subset=['receiver_name'], inplace=True)
+
+    # Group the passes by the 'player_name' (passer) and 'receiver_name' (receiver)
+    # Then count the number of passes for each pair
+    combinations_df = correct_passes_df.groupby(['team_name', 'player_name', 'receiver_name']).size().reset_index(name='passes')
+
+    # Get the unique team names from the data
+    teams = combinations_df['team_name'].unique()
+
+    # ANSI color codes for a fancier look
+    class bcolors:
+        HEADER = '\033[95m'
+        OKBLUE = '\033[94m'
+        OKCYAN = '\033[96m'
+        OKGREEN = '\033[92m'
+        WARNING = '\033[93m'
+        FAIL = '\033[91m'
+        ENDC = '\033[0m'
+        BOLD = '\033[1m'
+        UNDERLINE = '\033[4m'
+
+    # Iterate through each team and print their top pass combinations
+    for team in teams:
+        team_combinations = combinations_df[combinations_df['team_name'] == team].sort_values(by='passes', ascending=False)
+        
+        print(f"\n{bcolors.BOLD}--- Top 10 Pass Combinations for {team} ---{bcolors.ENDC}")
+        
+        if team_combinations.empty:
+            print(f"{bcolors.WARNING}No 'correctPasses' data found for this team.{bcolors.ENDC}")
+        else:
+            # Create a new DataFrame for display with a formatted 'Combination' column
+            display_df = team_combinations.head(10).copy()
+            
+            # Format the output using an f-string with an arrow and colors
+            display_df['Combination'] = display_df.apply(
+                lambda row: f"{bcolors.OKGREEN}{row['player_name']}{bcolors.ENDC} {bcolors.OKBLUE}→{bcolors.ENDC} {bcolors.OKGREEN}{row['receiver_name']}{bcolors.ENDC}", axis=1
+            )
+            
+            # This is the fix for the alignment issue.
+            # We are now manually creating the header string to ensure alignment.
+            header = f"{'Combination':<40}{'Passes':<10}"
+            
+            print(header)
+            
+            # This is the final output table
+            for _, row in display_df.iterrows():
+                # We use string formatting to ensure that both columns are aligned.
+                combo_text = f"{row['player_name']} → {row['receiver_name']}"
+                print(f"{bcolors.OKGREEN}{combo_text:<40}{bcolors.ENDC}{bcolors.BOLD}{row['passes']:<10}{bcolors.ENDC}")
+
+except FileNotFoundError:
+    print("Error: 'match_data.csv' file not found. Please ensure the file is in the same directory as the script.")
+except Exception as e:
+    print(f"An error occurred: {e}")
