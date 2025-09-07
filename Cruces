@@ -1,0 +1,164 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+from mplsoccer import Pitch
+import matplotlib.patches as patches
+
+# Define colors
+bg_color = 'white'
+line_color = 'black'
+hcol = '#235D9F'
+acol = '#AA3434'
+
+def Crosses(ax, df, hteamName, ateamName):
+    """
+    Crea una visualización de los cruces en un campo de fútbol y devuelve las estadísticas.
+    """
+    # Pitch color is white, lines are black
+    pitch = Pitch(pitch_type='uefa', corner_arcs=True, pitch_color='white', line_color='black', linewidth=2)
+    pitch.draw(ax=ax)
+    ax.set_ylim(-0.5,68.5)
+    ax.set_xlim(-0.5,105.5)
+
+    # Filter for home team crosses (using the most conservative definition)
+    home_crosses = df[
+        (df['teamName'] == hteamName) &
+        (df['type'].isin(['correctPasses', 'incorrectPasses'])) &
+        (df['y'].abs() > 0.6) &
+        (df['endX'] > 0.5) &
+        (df['endY'].abs() < 0.3)
+    ]
+
+    # Filter for away team crosses (using the most conservative definition)
+    away_crosses = df[
+        (df['teamName'] == ateamName) &
+        (df['type'].isin(['correctPasses', 'incorrectPasses'])) &
+        (df['y'].abs() > 0.6) &
+        (df['endX'] > 0.5) &
+        (df['endY'].abs() < 0.3)
+    ]
+
+    hsuc = 0
+    hunsuc = 0
+    asuc = 0
+    aunsuc = 0
+
+    # Plot home team crosses
+    for index, row in home_crosses.iterrows():
+        # Correctly map normalized coordinates to mplsoccer pitch
+        start_x = (row['x'] * 52.5) + 52.5
+        start_y = (row['y'] * 34) + 34
+        end_x = (row['endX'] * 52.5) + 52.5
+        end_y = (row['endY'] * 34) + 34
+        
+        # Mirror coordinates for home team for correct plotting
+        start_x_mirrored = 105 - start_x
+        start_y_mirrored = 68 - start_y
+        end_x_mirrored = 105 - end_x
+        end_y_mirrored = 68 - end_y
+
+        if row['type'] == 'correctPasses':
+            arrow = patches.FancyArrowPatch((start_x_mirrored, start_y_mirrored), (end_x_mirrored, end_y_mirrored), arrowstyle='->', mutation_scale=15, color=hcol, linewidth=1.5, alpha=1)
+            ax.add_patch(arrow)
+            hsuc += 1
+        else:
+            arrow = patches.FancyArrowPatch((start_x_mirrored, start_y_mirrored), (end_x_mirrored, end_y_mirrored), arrowstyle='->', mutation_scale=10, color='darkgray', linewidth=1.5, alpha=0.7)
+            ax.add_patch(arrow)
+            hunsuc += 1
+
+    # Plot away team crosses
+    for index, row in away_crosses.iterrows():
+        # Correctly map normalized coordinates to mplsoccer pitch
+        start_x = (row['x'] * 52.5) + 52.5
+        start_y = (row['y'] * 34) + 34
+        end_x = (row['endX'] * 52.5) + 52.5
+        end_y = (row['endY'] * 34) + 34
+        
+        if row['type'] == 'correctPasses':
+            arrow = patches.FancyArrowPatch((start_x, start_y), (end_x, end_y), arrowstyle='->', mutation_scale=15, color=acol, linewidth=1.5, alpha=1)
+            ax.add_patch(arrow)
+            asuc += 1
+        else:
+            arrow = patches.FancyArrowPatch((start_x, start_y), (end_x, end_y), arrowstyle='->', mutation_scale=10, color='darkgray', linewidth=1.5, alpha=0.7)
+            ax.add_patch(arrow)
+            aunsuc += 1
+    
+    # Calculate and display stats
+    home_left = len(home_crosses[home_crosses['y'] > 0])
+    home_right = len(home_crosses[home_crosses['y'] < 0])
+    away_left = len(away_crosses[away_crosses['y'] > 0])
+    away_right = len(away_crosses[away_crosses['y'] < 0])
+
+    # Text changed to Spanish
+    ax.text(51, 2, f"Cruces desde\nla banda izquierda: {home_left}", color='black', fontsize=15, va='bottom', ha='right')
+    ax.text(51, 66, f"Cruces desde\nla banda derecha: {home_right}", color='black', fontsize=15, va='top', ha='right')
+    ax.text(54, 66, f"Cruces desde\nla banda izquierda: {away_left}", color='black', fontsize=15, va='top', ha='left')
+    ax.text(54, 2, f"Cruces desde\nla banda derecha: {away_right}", color='black', fontsize=15, va='bottom', ha='left')
+
+    ax.text(0,-2, f"Exitosos: {hsuc}", color=hcol, fontsize=20, ha='left', va='top')
+    ax.text(0,-5.5, f"No exitosos: {hunsuc}", color='darkgray', fontsize=20, ha='left', va='top')
+    ax.text(105,-2, f"Exitosos: {asuc}", color=acol, fontsize=20, ha='right', va='top')
+    ax.text(105,-5.5, f"No exitosos: {aunsuc}", color='darkgray', fontsize=20, ha='right', va='top')
+
+    ax.text(0, 70, f"{hteamName}\n<---Cruces", color=hcol, size=25, ha='left', fontweight='bold')
+    ax.text(105, 70, f"{ateamName}\nCruces--->", color=acol, size=25, ha='right', fontweight='bold')
+
+    home_data = {
+        'Team_Name': hteamName,
+        'Total_Cross': hsuc + hunsuc,
+        'Successful_Cross': hsuc,
+        'Unsuccessful_Cross': hunsuc,
+        'Cross_From_LeftWing': home_left,
+        'Cross_From_RightWing': home_right
+    }
+
+    away_data = {
+        'Team_Name': ateamName,
+        'Total_Cross': asuc + aunsuc,
+        'Successful_Cross': asuc,
+        'Unsuccessful_Cross': aunsuc,
+        'Cross_From_LeftWing': away_left,
+        'Cross_From_RightWing': away_right
+    }
+
+    return [home_data, away_data]
+
+if __name__ == '__main__':
+    try:
+        # Load data from the CSV file
+        file_name = '/Users/gustavoortiz/Downloads/DatafactoryData.csv'
+        df = pd.read_csv(file_name)
+        
+        # Rename columns to match the code logic
+        df.rename(columns={'x1': 'x', 'y1': 'y', 'x2': 'endX', 'y2': 'endY', 'team_name': 'teamName', 'event_type': 'type'}, inplace=True)
+        
+        # Extract team names dynamically from the 'teamName' column
+        team_names = df['teamName'].unique()
+        if len(team_names) == 2:
+            hteamName, ateamName = team_names
+        else:
+            # Handle cases where there are not exactly two teams
+            print("Warning: Could not automatically determine home and away teams. Please update team names manually.")
+            hteamName = 'Venezuela'
+            ateamName = 'Argentina'
+
+        for col in ['x', 'y', 'endX', 'endY']:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        fig, ax = plt.subplots(figsize=(10, 10), facecolor='white')
+        cross_stats = Crosses(ax, df, hteamName, ateamName)
+        cross_stats_df = pd.DataFrame(cross_stats)
+        
+        plt.tight_layout()
+        plt.show()
+
+        print("\nCross Statistics:")
+        print(cross_stats_df)
+
+    except FileNotFoundError:
+        print(f"Error: The file '{file_name}' was not found. Please ensure it is in the same directory as your Python script.")
+    except ImportError as e:
+        print(f"An import error occurred: {e}. Please ensure you have the necessary libraries installed.")
+        print("You may need to run: pip install pandas matplotlib mplsoccer")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
