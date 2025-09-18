@@ -1,0 +1,196 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+
+def draw_pitch(ax):
+    """
+    Draws a horizontal soccer pitch on a given matplotlib axes object.
+    The pitch dimensions are rectangular based on a 105x68m standard.
+    """
+    # Define the aspect ratio of a standard pitch (e.g., 105m long x 68m wide)
+    WIDTH_SCALE = 68 / 105
+
+    # Pitch dimensions (horizontal orientation)
+    x_min, x_max = -1, 1
+    y_min, y_max = -1 * WIDTH_SCALE, 1 * WIDTH_SCALE
+
+    # Set axis limits and aspect ratio
+    ax.set_xlim(x_min - 0.1, x_max + 0.1)
+    ax.set_ylim(y_min - 0.2, y_max + 0.2) # Margin for attacking arrow
+    ax.set_aspect('equal', adjustable='box')
+
+    # Pitch background
+    ax.add_patch(patches.Rectangle((x_min, y_min), 2, y_max - y_min, facecolor='white', zorder=0))
+
+    # Pitch lines
+    line_color = 'black'
+    line_width = 2
+
+    # Outer lines
+    ax.plot([x_min, x_max], [y_min, y_min], color=line_color, linewidth=line_width, zorder=1)
+    ax.plot([x_min, x_max], [y_max, y_max], color=line_color, linewidth=line_width, zorder=1)
+    ax.plot([x_min, x_min], [y_min, y_max], color=line_color, linewidth=line_width, zorder=1)
+    ax.plot([x_max, x_max], [y_min, y_max], color=line_color, linewidth=line_width, zorder=1)
+
+    # Halfway line
+    ax.plot([0, 0], [y_min, y_max], color=line_color, linewidth=line_width, zorder=1)
+
+    # Center circle and spot
+    center_circle = patches.Circle((0, 0), radius=0.174, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1)
+    center_spot = patches.Circle((0, 0), radius=0.01, color=line_color, zorder=1)
+    ax.add_patch(center_circle)
+    ax.add_patch(center_spot)
+
+    # Penalty areas (proportions based on a standard 105x68m pitch)
+    pa_width_prop = 40.3 / 68
+    pa_depth_prop = 16.5 / 105
+    pa_width = pa_width_prop * (y_max - y_min)
+    pa_depth = pa_depth_prop * (x_max - x_min)
+    
+    # Right penalty area
+    ax.add_patch(patches.Rectangle((x_max - pa_depth, -pa_width / 2), pa_depth, pa_width, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1))
+    # Left penalty area
+    ax.add_patch(patches.Rectangle((x_min, -pa_width / 2), pa_depth, pa_width, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1))
+
+    # Goal areas
+    ga_width_prop = 18.32 / 68
+    ga_depth_prop = 5.5 / 105
+    ga_width = ga_width_prop * (y_max - y_min)
+    ga_depth = ga_depth_prop * (x_max - x_min)
+
+    # Right goal area
+    ax.add_patch(patches.Rectangle((x_max - ga_depth, -ga_width / 2), ga_depth, ga_width, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1))
+    # Left goal area
+    ax.add_patch(patches.Rectangle((x_min, -ga_width / 2), ga_depth, ga_width, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1))
+    
+    # Penalty spots
+    penalty_spot_dist_prop = (11 / 105) * 2
+    ax.add_patch(patches.Circle((x_max - penalty_spot_dist_prop, 0), 0.01, color=line_color, zorder=1))
+    ax.add_patch(patches.Circle((x_min + penalty_spot_dist_prop, 0), 0.01, color=line_color, zorder=1))
+
+    # Remove axis ticks and labels
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+def visualize_passes(csv_file, team_name=None, player_name=None):
+    """
+    Loads pass data, normalizes it to one attacking direction (L->R),
+    and plots it on a single horizontal soccer pitch.
+    
+    Args:
+        csv_file (str): The path to the CSV file.
+        team_name (str, optional): The name of the team to visualize passes for. 
+                                   This is ignored if player_name is provided. Defaults to None.
+        player_name (str, optional): The name of the player to visualize passes for.
+                                     If None, passes for the specified team are shown. Defaults to None.
+    """
+    try:
+        df = pd.read_csv(csv_file)
+    except FileNotFoundError:
+        print(f"Error: The file '{csv_file}' was not found.")
+        return
+
+    # Filter data based on player or team
+    if player_name:
+        plot_df = df[df['player_name'] == player_name].copy()
+        main_title = f'Full Match Pass Map for {player_name}'
+    elif team_name:
+        plot_df = df[df['team_name'] == team_name].copy()
+        main_title = f'Full Match Pass Map for {team_name}'
+    else:
+        plot_df = df.copy()
+        main_title = 'Full Match Pass Map for All Teams'
+        
+    if plot_df.empty:
+        if player_name:
+            print(f"No data found for player: {player_name}")
+        elif team_name:
+            print(f"No data found for team: {team_name}")
+        else:
+            print("No data found in the CSV.")
+        return
+        
+    # --- Data Normalization ---
+    # 1. Flip all y-coordinates to horizontally mirror the pitch view.
+    plot_df[['y1', 'y2']] *= -1
+    
+    # 2. Invert coordinates for SECOND half passes to show all attacking L->R
+    second_half_mask = plot_df['minute'] > 45
+    coords_to_flip = ['x1', 'y1', 'x2', 'y2']
+    plot_df.loc[second_half_mask, coords_to_flip] *= -1
+
+
+    # Define the scaling factor used to draw the pitch
+    WIDTH_SCALE = 68 / 105
+
+    # Create the plot with a single subplot
+    fig, ax = plt.subplots(1, 1, figsize=(12 / WIDTH_SCALE, 12))
+    fig.patch.set_facecolor('#f4f4f4')
+    
+    draw_pitch(ax) # Draw the pitch on the axes
+    ax.set_title(main_title, fontsize=20, fontweight='bold', pad=20)
+
+    # Add single attacking direction indicator (pointing L -> R)
+    y_max = 1 * WIDTH_SCALE
+    ax.text(0, y_max + 0.12, 'Attacking Direction', ha='center', va='center', fontsize=12, fontweight='bold')
+    attack_arrow = patches.FancyArrowPatch(
+        (-0.6, y_max + 0.08), (0.6, y_max + 0.08),
+        arrowstyle='->', mutation_scale=30, color='black', lw=2
+    )
+    ax.add_patch(attack_arrow)
+    
+
+    # Plot all passes from the filtered dataframe
+    for _, row in plot_df.iterrows():
+        # x1, y1 is the pass origin and x2, y2 is the destination.
+        
+        # Scale the y-coordinates (width) to match the new pitch dimensions
+        start_x, start_y = row['x1'], row['y1'] * WIDTH_SCALE
+        end_x, end_y = row['x2'], row['y2'] * WIDTH_SCALE
+        event_type = row['event_type']
+
+        if event_type == 'correctPasses':
+            color = '#3498db' # Blue for correct passes
+            pass_style = '-'
+        elif event_type == 'incorrectPasses':
+            color = '#e74c3c' # Red for incorrect passes
+            pass_style = '--'
+        else:
+            continue # Skip other event types
+
+        # Draw the pass as an arrow from the corrected start to end point
+        arrow = patches.FancyArrowPatch(
+            (start_x, start_y), 
+            (end_x, end_y), 
+            arrowstyle='->', 
+            mutation_scale=15, 
+            color=color,
+            linestyle=pass_style,
+            alpha=0.7,
+            linewidth=1.5
+        )
+        ax.add_patch(arrow)
+
+    # Create custom legend handles and add a single legend for the figure
+    correct_pass_legend = plt.Line2D([0], [0], color='#3498db', lw=2, label='Correct Pass')
+    incorrect_pass_legend = plt.Line2D([0], [0], color='#e74c3c', lw=2, linestyle='--', label='Incorrect Pass')
+    fig.legend(handles=[correct_pass_legend, incorrect_pass_legend], loc='upper right', bbox_to_anchor=(0.95, 0.92), fontsize=12)
+
+    # Adjust layout, save, and show the plot
+    plt.tight_layout()
+    plt.savefig('soccer_pass_map_player_normalized.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+if __name__ == '__main__':
+    # --- Instructions ---
+    # 1. Make sure 'RacSanDataFactory.csv' is in the same directory as this script.
+    # 2. To see passes for a specific player, set 'player_to_visualize' to their name.
+    # 3. To see all passes for a team, set 'player_to_visualize = None' and set 'team_to_visualize' to the team name.
+    # 4. To see all passes from all teams, set both to None.
+    # ------------------
+    
+    csv_filename = '/Users/gustavoortiz/Downloads/RacSanDataFactory.csv'
+    team_to_visualize = 'San Lorenzo' # This is ignored if a player is specified below.
+    player_to_visualize = 'Orlando David Gill' # Set to a player's name or None
+    
+    visualize_passes(csv_filename, team_name=team_to_visualize, player_name=player_to_visualize)
