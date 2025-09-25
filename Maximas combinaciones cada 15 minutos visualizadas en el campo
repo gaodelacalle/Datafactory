@@ -1,0 +1,184 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+
+def draw_pitch(ax):
+    """
+    Draws a minimalist, frameless horizontal soccer pitch on a given axes object.
+    """
+    WIDTH_SCALE = 68 / 105
+    x_min, x_max = -1, 1
+    y_min, y_max = -1 * WIDTH_SCALE, 1 * WIDTH_SCALE
+
+    ax.set_xlim(x_min, x_max)
+    ax.set_ylim(y_min, y_max)
+    ax.set_aspect('equal', adjustable='box')
+    ax.axis('off') # Turn off axis lines and labels
+
+    # Pitch background and outer lines
+    ax.add_patch(patches.Rectangle((x_min, y_min), 2, y_max - y_min, facecolor='#f4f4f4', edgecolor='black', zorder=0))
+    ax.plot([0, 0], [y_min, y_max], color='black', linewidth=1, zorder=1)
+
+    # Center circle
+    center_circle = patches.Circle((0, 0), radius=0.174, edgecolor='black', facecolor='none', linewidth=1, zorder=1)
+    ax.add_patch(center_circle)
+
+    # Penalty areas
+    pa_width = (40.3 / 68) * (y_max - y_min)
+    pa_depth = (16.5 / 105) * (x_max - x_min)
+    ax.add_patch(patches.Rectangle((x_max - pa_depth, -pa_width / 2), pa_depth, pa_width, edgecolor='black', facecolor='none', linewidth=1, zorder=1))
+    ax.add_patch(patches.Rectangle((x_min, -pa_width / 2), pa_depth, pa_width, edgecolor='black', facecolor='none', linewidth=1, zorder=1))
+    
+    # Goal areas
+    ga_width = (18.32 / 68) * (y_max - y_min)
+    ga_depth = (5.5 / 105) * (x_max - x_min)
+    ax.add_patch(patches.Rectangle((x_max - ga_depth, -ga_width / 2), ga_depth, ga_width, edgecolor='black', facecolor='none', linewidth=1, zorder=1))
+    ax.add_patch(patches.Rectangle((x_min, -ga_width / 2), ga_depth, ga_width, edgecolor='black', facecolor='none', linewidth=1, zorder=1))
+
+    # Penalty spots
+    penalty_spot_dist = (11 / 105) * 2
+    ax.add_patch(patches.Circle((x_max - penalty_spot_dist, 0), 0.01, color='black', zorder=1))
+    ax.add_patch(patches.Circle((x_min + penalty_spot_dist, 0), 0.01, color='black', zorder=1))
+
+def format_player_name(full_name):
+    """
+    Formats a full name to 'FirstInitial. LastName'.
+    E.g., 'Juan Andres Meli' -> 'J. Meli'
+    """
+    if not isinstance(full_name, str):
+        return str(full_name)
+    
+    parts = full_name.split()
+    if not parts:
+        return ""
+        
+    first_initial = parts[0][0]
+    last_name = parts[-1] 
+    
+    return f"{first_initial}. {last_name}"
+
+
+def visualize_combined_passes(csv_file, team_name=None, top_n=10):
+    """
+    Loads correct pass data and generates a single image with a 2x3 grid
+    of plots, one for each 15-minute interval. All passes are normalized
+    to show the team attacking the left side of the pitch (Right -> Left).
+    """
+    try:
+        df = pd.read_csv(csv_file)
+    except FileNotFoundError:
+        print(f"Error: The file '{csv_file}' was not found.")
+        return
+
+    # Use 'Correct Pass' based on CSV snippet
+    df = df[df['event_type'] == 'correctPasses'].copy() 
+
+    if team_name:
+        base_df = df[df['team_name'] == team_name].copy()
+        if base_df.empty:
+            print(f"No correct passes found for team: {team_name}")
+            return
+    else:
+        base_df = df.copy()
+
+    intervals = [(0, 15), (15, 30), (30, 45), (45, 60), (60, 75), (75, 999)]
+
+    # Create a figure with a 2x3 grid of subplots
+    fig, axes = plt.subplots(2, 3, figsize=(20, 12))
+    fig.patch.set_facecolor('#f4f4f4')
+    
+    # Flatten the 2x3 array of axes for easy iteration
+    axes_flat = axes.flatten()
+
+    for i, (start_min, end_min) in enumerate(intervals):
+        ax = axes_flat[i] # Get the current subplot to draw on
+        
+        interval_df = base_df[
+            (base_df['minute'] >= start_min) & (base_df['minute'] < end_min)
+        ].copy()
+
+        end_min_label = f"{end_min}" if end_min != 999 else "90+"
+        interval_label = f"{start_min}-{end_min_label} min"
+
+        # Draw the pitch first
+        draw_pitch(ax)
+
+        if interval_df.empty:
+            ax.text(0, 0, f"No passes in\n{interval_label}", ha='center', va='center', fontsize=12)
+            continue
+
+        # Drop rows missing any data required for plotting or combination calculation
+        interval_df.dropna(subset=['player_name', 'receiver_name', 'x1', 'y1', 'x2', 'y2'], inplace=True)
+        pass_combinations = interval_df.groupby(['player_name', 'receiver_name']).size().reset_index(name='pass_count')
+        top_combinations = pass_combinations.sort_values(by='pass_count', ascending=False).head(top_n)
+        plot_df = pd.merge(interval_df, top_combinations, on=['player_name', 'receiver_name'], how='inner')
+
+        if plot_df.empty:
+            ax.text(0, 0, f"No combinations found in\n{interval_label}", ha='center', va='center', fontsize=12)
+            continue
+            
+        # Create text for combinations list
+        combo_list_text = "Top Combinations:\n" + ("-" * 22) + "\n"
+        top_combinations_ranked = top_combinations.reset_index(drop=True)
+        for index, row in top_combinations_ranked.iterrows():
+            passer, receiver, count = row['player_name'], row['receiver_name'], row['pass_count']
+            
+            # Use the new format_player_name function
+            formatted_passer = format_player_name(passer)
+            formatted_receiver = format_player_name(receiver)
+            
+            combo_list_text += f"{index+1}. {formatted_passer} → {formatted_receiver} ({count})\n"
+
+        # --- REVISED NORMALIZATION LOGIC FOR CONSISTENT ORIENTATION ---
+        # 1. Invert y-coordinates to match pitch drawing
+        plot_df[['y1', 'y2']] *= -1 
+
+        # 2. Identify and flip passes that started in the left half (x1 < 0) to ensure R -> L attack
+        flip_mask = plot_df['x1'] < 0
+        plot_df.loc[flip_mask, ['x1', 'y1', 'x2', 'y2']] *= -1
+        # --- END REVISED NORMALIZATION LOGIC ---
+
+        # Plot the pass arrows
+        WIDTH_SCALE = 68 / 105
+        for _, row in plot_df.iterrows():
+            start_x, start_y = row['x1'], row['y1'] * WIDTH_SCALE
+            end_x, end_y = row['x2'], row['y2'] * WIDTH_SCALE
+            arrow = patches.FancyArrowPatch(
+                (start_x, start_y), (end_x, end_y), arrowstyle='->', mutation_scale=15,
+                color='#2ecc71', alpha=0.7, linewidth=1.5
+            )
+            ax.add_patch(arrow)
+
+        # Add interval label and combinations list inside the pitch
+        y_max_pitch = 1 * WIDTH_SCALE
+        # Add interval label to top-center
+        ax.text(0, y_max_pitch * 0.95, interval_label, fontsize=18, fontweight='bold', ha='center', va='top',
+                bbox=dict(boxstyle='round,pad=0.3', fc='white', ec='none', alpha=0.8))
+        
+        # Add combinations list to top-left
+        # REMOVED bbox=... to remove the rectangle
+        ax.text(-0.98, y_max_pitch * 0.98, combo_list_text, fontsize=10, ha='left', va='top',
+                family='monospace') 
+
+    # Add overall title and a single legend for the figure
+    fig.suptitle(f'Top {top_n} Correct Pass Combinations for {team_name} (All Attacking Right $\\rightarrow$ Left)', fontsize=24, fontweight='bold')
+    
+    correct_pass_legend = plt.Line2D([0], [0], color='#2ecc71', lw=3, label='Correct Pass')
+    fig.legend(handles=[correct_pass_legend], loc='upper center', bbox_to_anchor=(0.5, 0.95), fontsize=14, ncol=1)
+
+    # Clean up layout and save the single image
+    plt.tight_layout(rect=[0, 0, 1, 0.93]) # Adjust rect to make space for suptitle
+    plt.savefig('soccer_pass_map_all_intervals_formatted.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+# Execution block
+if __name__ == '__main__':
+    csv_filename = '/Users/gustavoortiz/Downloads/dataGC.csv' 
+    team_to_visualize = 'Godoy Cruz'
+    top_n_to_show = 5
+
+    visualize_combined_passes(
+        csv_filename,
+        team_name=team_to_visualize,
+        top_n=top_n_to_show
+    )
