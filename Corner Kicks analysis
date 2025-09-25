@@ -1,0 +1,151 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import math
+
+def draw_half_pitch(ax):
+    """
+    Draws the right half of a horizontal soccer pitch.
+    """
+    WIDTH_SCALE = 68 / 105
+    x_min, x_max = 0, 1 
+    y_min, y_max = -1 * WIDTH_SCALE, 1 * WIDTH_SCALE
+
+    ax.set_xlim(x_min - 0.05, x_max + 0.05)
+    ax.set_ylim(y_min - 0.05, y_max + 0.12)
+    ax.axis('off')
+    ax.set_aspect('equal', adjustable='box')
+    
+    ax.add_patch(patches.Rectangle((x_min, y_min), x_max - x_min, y_max - y_min, facecolor='white', zorder=0))
+    
+    line_color = 'black'
+    line_width = 2
+    ax.plot([x_min, x_max], [y_min, y_min], color=line_color, linewidth=line_width, zorder=1)
+    ax.plot([x_min, x_max], [y_max, y_max], color=line_color, linewidth=line_width, zorder=1)
+    ax.plot([x_max, x_max], [y_min, y_max], color=line_color, linewidth=line_width, zorder=1)
+    ax.plot([x_min, x_min], [y_min, y_max], color=line_color, linewidth=line_width, zorder=1)
+    
+    center_arc = patches.Arc((0, 0), 0.174*2, 0.174*2, angle=0, theta1=-90, theta2=90, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1)
+    center_spot = patches.Circle((0, 0), radius=0.01, color=line_color, zorder=1)
+    ax.add_patch(center_arc)
+    ax.add_patch(center_spot)
+    
+    pa_width_prop = 40.3 / 68
+    pa_depth_prop = 16.5 / 105
+    pa_width = pa_width_prop * (y_max - y_min)
+    pa_depth = pa_depth_prop * 2
+    ax.add_patch(patches.Rectangle((x_max - pa_depth, -pa_width / 2), pa_depth, pa_width, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1))
+    
+    ga_width_prop = 18.32 / 68
+    ga_depth_prop = 5.5 / 105
+    ga_width = ga_width_prop * (y_max - y_min)
+    ga_depth = ga_depth_prop * 2
+    ax.add_patch(patches.Rectangle((x_max - ga_depth, -ga_width / 2), ga_depth, ga_width, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1))
+    
+    penalty_spot_dist_prop = (11 / 105) * 2
+    ax.add_patch(patches.Circle((x_max - penalty_spot_dist_prop, 0), 0.01, color=line_color, zorder=1))
+
+def visualize_corner_kicks(csv_file):
+    """
+    Visualizes corner kicks with a summary table in a four-panel plot.
+    """
+    try:
+        df = pd.read_csv(csv_file)
+    except FileNotFoundError:
+        print(f"Error: The file '{csv_file}' was not found.")
+        return
+
+    main_title = 'Análisis de Tiros de Esquina'
+    corners_df = df[df['event_type'] == 'cornerKick'].copy()
+        
+    correct_corners = corners_df[corners_df['outcome'] == 'Successful'].copy()
+    incorrect_corners = corners_df[corners_df['outcome'] == 'Unsuccessful'].copy()
+    
+    player_counts = corners_df['player_name'].value_counts().reset_index()
+    player_counts.columns = ['Jugador', 'Total']
+
+    # --- NEW: Format player names for the table ---
+    # 1. Get a list of all last names
+    last_names = player_counts['Jugador'].str.split().str[-1]
+    # 2. Find which last names are duplicated
+    duplicated_last_names = last_names[last_names.duplicated()].unique()
+    # 3. Define a function to format the names
+    def format_name(full_name):
+        parts = full_name.split()
+        first_name = parts[0]
+        last_name = parts[-1]
+        if last_name in duplicated_last_names:
+            return f"{first_name[0]}. {last_name}"
+        else:
+            return last_name
+    # 4. Apply the function to the 'Jugador' column
+    player_counts['Jugador'] = player_counts['Jugador'].apply(format_name)
+
+
+    for df_part in [correct_corners, incorrect_corners]:
+        df_part.loc[:, ['y1', 'y2']] *= -1
+        coords_to_flip = ['x1', 'y1', 'x2', 'y2']
+        left_sided_mask = df_part['x1'] < 0
+        df_part.loc[left_sided_mask, coords_to_flip] *= -1
+    
+    WIDTH_SCALE = 68 / 105
+    y_max = 1 * WIDTH_SCALE
+
+    fig, (ax1, ax2, ax3, ax4) = plt.subplots(
+        1, 4, 
+        figsize=(28, 10), 
+        gridspec_kw={'width_ratios': [3, 2, 3, 3], 'wspace': 0.05}
+    )
+    fig.patch.set_facecolor('#f4f4f4')
+    fig.suptitle(main_title, fontsize=40, fontweight='bold')
+
+    # --- Plot 1: All Corners ---
+    draw_half_pitch(ax1)
+    total_corners = len(corners_df)
+    ax1.text(0.5, y_max + 0.04, f'Todos ({total_corners})', fontsize=30, ha='center', va='bottom')
+    for _, row in correct_corners.iterrows():
+        ax1.add_patch(patches.FancyArrowPatch((row['x1'], row['y1'] * WIDTH_SCALE), (row['x2'], row['y2'] * WIDTH_SCALE), arrowstyle='->', mutation_scale=15, color='#34B164', alpha=0.7, linewidth=1.5))
+    for _, row in incorrect_corners.iterrows():
+        ax1.add_patch(patches.FancyArrowPatch((row['x1'], row['y1'] * WIDTH_SCALE), (row['x2'], row['y2'] * WIDTH_SCALE), arrowstyle='->', mutation_scale=15, color='#e74c3c', linestyle='--', alpha=0.7, linewidth=1.5))
+
+    # --- Panel 2: Player Table ---
+    ax2.axis('off')
+    ax2.set_title('Jugadores', fontsize=30, y=0.94)
+    table_data = player_counts.values
+    table = ax2.table(cellText=table_data, colLabels=player_counts.columns, loc='center', cellLoc='left')
+    table.auto_set_font_size(False)
+    table.set_fontsize(16)
+    table.scale(1, 2.5)
+    for key, cell in table.get_celld().items():
+        cell.set_edgecolor('none')
+        if key[0] == 0:
+            cell.set_text_props(weight='bold')
+        if key[1] == 1:
+             cell.set_text_props(ha='center')
+
+    # --- Plot 3: Successful Corners ---
+    draw_half_pitch(ax3)
+    total_correct = len(correct_corners)
+    ax3.text(0.5, y_max + 0.04, f'Exitosos ({total_correct})', fontsize=30, ha='center', va='bottom')
+    for _, row in correct_corners.iterrows():
+        ax3.add_patch(patches.FancyArrowPatch((row['x1'], row['y1'] * WIDTH_SCALE), (row['x2'], row['y2'] * WIDTH_SCALE), arrowstyle='->', mutation_scale=15, color='#34B164', alpha=0.7, linewidth=1.5))
+
+    # --- Plot 4: Unsuccessful Corners ---
+    draw_half_pitch(ax4)
+    total_incorrect = len(incorrect_corners)
+    ax4.text(0.5, y_max + 0.04, f'Fallidos ({total_incorrect})', fontsize=30, ha='center', va='bottom')
+    for _, row in incorrect_corners.iterrows():
+        ax4.add_patch(patches.FancyArrowPatch((row['x1'], row['y1'] * WIDTH_SCALE), (row['x2'], row['y2'] * WIDTH_SCALE), arrowstyle='->', mutation_scale=15, color='#e74c3c', linestyle='--', alpha=0.7, linewidth=1.5))
+
+    # --- Legend (in Spanish) ---
+    successful_legend = plt.Line2D([0], [0], color='#34B164', lw=2, label='Tiro de Esquina Exitoso')
+    unsuccessful_legend = plt.Line2D([0], [0], color='#e74c3c', lw=2, linestyle='--', label='Tiro de Esquina Fallido')
+    fig.legend(handles=[successful_legend, unsuccessful_legend], loc='upper right', bbox_to_anchor=(0.96, 0.96), fontsize=16)
+
+    plt.tight_layout(rect=[0, 0, 1, 0.94])
+    plt.savefig('soccer_corner_kick_final_summary.png', dpi=300, bbox_inches='tight')
+    plt.show()
+
+if __name__ == '__main__':
+    csv_filename = '/Users/gustavoortiz/Downloads/CornersGC.csv'
+    visualize_corner_kicks(csv_filename)
