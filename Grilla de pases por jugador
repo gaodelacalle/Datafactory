@@ -1,0 +1,174 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import math
+
+def draw_pitch(ax):
+    """
+    Draws a horizontal soccer pitch on a given matplotlib axes object.
+    The pitch dimensions are rectangular based on a 105x68m standard.
+    """
+    # Define the aspect ratio of a standard pitch (e.g., 105m long x 68m wide)
+    WIDTH_SCALE = 68 / 105
+
+    # Pitch dimensions (horizontal orientation)
+    x_min, x_max = -1, 1
+    y_min, y_max = -1 * WIDTH_SCALE, 1 * WIDTH_SCALE
+
+    # Set axis limits and aspect ratio
+    ax.set_xlim(x_min - 0.1, x_max + 0.1)
+    ax.set_ylim(y_min - 0.2, y_max + 0.2)
+    ax.set_aspect('equal', adjustable='box')
+
+    # Pitch background
+    ax.add_patch(patches.Rectangle((x_min, y_min), 2, y_max - y_min, facecolor='white', zorder=0))
+
+    # Pitch lines
+    line_color = 'black'
+    line_width = 1.5
+
+    # Outer lines
+    ax.plot([x_min, x_max], [y_min, y_min], color=line_color, linewidth=line_width, zorder=1)
+    ax.plot([x_min, x_max], [y_max, y_max], color=line_color, linewidth=line_width, zorder=1)
+    ax.plot([x_min, x_min], [y_min, y_max], color=line_color, linewidth=line_width, zorder=1)
+    ax.plot([x_max, x_max], [y_min, y_max], color=line_color, linewidth=line_width, zorder=1)
+
+    # Halfway line
+    ax.plot([0, 0], [y_min, y_max], color=line_color, linewidth=line_width, zorder=1)
+
+    # Center circle and spot
+    center_circle = patches.Circle((0, 0), radius=0.174, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1)
+    center_spot = patches.Circle((0, 0), radius=0.01, color=line_color, zorder=1)
+    ax.add_patch(center_circle)
+    ax.add_patch(center_spot)
+
+    # Penalty areas
+    pa_width_prop = 40.3 / 68
+    pa_depth_prop = 16.5 / 105
+    pa_width = pa_width_prop * (y_max - y_min)
+    pa_depth = pa_depth_prop * (x_max - x_min)
+    ax.add_patch(patches.Rectangle((x_max - pa_depth, -pa_width / 2), pa_depth, pa_width, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1))
+    ax.add_patch(patches.Rectangle((x_min, -pa_width / 2), pa_depth, pa_width, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1))
+
+    # Goal areas
+    ga_width_prop = 18.32 / 68
+    ga_depth_prop = 5.5 / 105
+    ga_width = ga_width_prop * (y_max - y_min)
+    ga_depth = ga_depth_prop * (x_max - x_min)
+    ax.add_patch(patches.Rectangle((x_max - ga_depth, -ga_width / 2), ga_depth, ga_width, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1))
+    ax.add_patch(patches.Rectangle((x_min, -ga_width / 2), ga_depth, ga_width, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1))
+    
+    # Penalty spots
+    penalty_spot_dist_prop = (11 / 105) * 2
+    ax.add_patch(patches.Circle((x_max - penalty_spot_dist_prop, 0), 0.01, color=line_color, zorder=1))
+    ax.add_patch(patches.Circle((x_min + penalty_spot_dist_prop, 0), 0.01, color=line_color, zorder=1))
+
+    # Remove axis ticks and labels
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+def visualize_player_passes(csv_file, team_name=None):
+    """
+    Loads pass data and generates a grid of pass maps, one for each player.
+    Each map is titled with the player's name and their passing statistics.
+    
+    Args:
+        csv_file (str): The path to the CSV file.
+        team_name (str, optional): The name of the team to filter for. If None, all players are shown.
+    """
+    try:
+        df = pd.read_csv(csv_file)
+    except FileNotFoundError:
+        print(f"Error: The file '{csv_file}' was not found.")
+        return
+
+    # Filter by team if a name is provided
+    if team_name:
+        df = df[df['team_name'] == team_name].copy()
+        main_title = f'Player Pass Maps for {team_name}'
+    else:
+        main_title = 'Player Pass Maps for All Teams'
+
+    if df.empty:
+        print("No data found for the specified filter.")
+        return
+        
+    # --- Data Normalization ---
+    df[['y1', 'y2']] *= -1
+    first_half_mask = df['minute'] <= 45
+    coords_to_flip = ['x1', 'y1', 'x2', 'y2']
+    df.loc[first_half_mask, coords_to_flip] *= -1
+
+    # Get a list of unique players who made at least one pass
+    players = df['player_name'].unique()
+    num_players = len(players)
+
+    # Dynamically determine grid size with 4 columns
+    cols = 4 
+    rows = math.ceil(num_players / cols)
+
+    # Define the scaling factor used to draw the pitch
+    WIDTH_SCALE = 68 / 105
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * 7, rows * 7))
+    fig.patch.set_facecolor('white') # Set background to white
+    fig.suptitle(main_title, fontsize=24, fontweight='bold')
+    
+    axes = axes.flatten()
+
+    for i, player_name in enumerate(players):
+        ax = axes[i]
+        ax.axis('off') # Turn off the axis frame to remove the rectangle
+        draw_pitch(ax)
+
+        player_df = df[df['player_name'] == player_name].copy()
+        
+        # Calculate passing stats
+        total_passes = len(player_df)
+        correct_passes = len(player_df[player_df['event_type'] == 'correctPasses'])
+        pass_percentage = (correct_passes / total_passes * 100) if total_passes > 0 else 0
+        
+        # Create a single-line title with bold name and stats
+        # Using mathtext for bolding. Replacing spaces to handle multi-word names.
+        name_formatted = player_name.replace(" ", r"\ ")
+        title_string = f"$\\bf{{{name_formatted}}}$  {correct_passes}/{total_passes} ({pass_percentage:.1f}%)"
+        ax.set_title(title_string, fontsize=20, y=1.0, pad=-15)
+
+
+        # Plot all passes for the player
+        for _, row in player_df.iterrows():
+            start_x, start_y = row['x1'], row['y1'] * WIDTH_SCALE
+            end_x, end_y = row['x2'], row['y2'] * WIDTH_SCALE
+            
+            if row['event_type'] == 'correctPasses':
+                color, style = '#3498db', '-'
+            else:
+                color, style = '#e74c3c', '--'
+
+            arrow = patches.FancyArrowPatch(
+                (start_x, start_y), (end_x, end_y), 
+                arrowstyle='->', mutation_scale=10, color=color,
+                linestyle=style, alpha=0.8, linewidth=2.0
+            )
+            ax.add_patch(arrow)
+
+    # Hide unused subplots
+    for j in range(num_players, len(axes)):
+        axes[j].axis('off')
+
+    # Add a single legend for the entire figure
+    correct_pass_legend = plt.Line2D([0], [0], color='#3498db', lw=2, label='Correct Pass')
+    incorrect_pass_legend = plt.Line2D([0], [0], color='#e74c3c', lw=2, linestyle='--', label='Incorrect Pass')
+    fig.legend(handles=[correct_pass_legend, incorrect_pass_legend], loc='upper right', fontsize=24)
+
+    fig.tight_layout(rect=[0, 0, 1, 0.96])
+    # Adjust spacing to be tight but not overlapping
+    plt.subplots_adjust(hspace=-0.6, wspace=0.05) 
+    plt.savefig('soccer_pass_map_by_player.png', dpi=300)
+    plt.show()
+
+if __name__ == '__main__':
+    csv_filename = '/Users/gustavoortiz/Downloads/GCvsInstituto.csv'
+    # Set a team name to filter, or set to None to show all players from all teams
+    team_to_visualize = 'Godoy Cruz' 
+    
+    visualize_player_passes(csv_filename, team_name=team_to_visualize)
