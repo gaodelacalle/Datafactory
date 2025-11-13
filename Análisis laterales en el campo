@@ -1,0 +1,285 @@
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import numpy as np
+import warnings
+
+def draw_pitch(ax):
+    """
+    Draws a horizontal soccer pitch on a given matplotlib axes object.
+    The pitch dimensions are rectangular based on a 105x68m standard.
+    """
+    # Define the aspect ratio of a standard pitch (e.g., 105m long x 68m wide)
+    WIDTH_SCALE = 68 / 105
+
+    # Pitch dimensions (horizontal orientation)
+    x_min, x_max = -1, 1
+    y_min, y_max = -1 * WIDTH_SCALE, 1 * WIDTH_SCALE
+
+    # Set axis limits and aspect ratio
+    ax.set_xlim(x_min - 0.1, x_max + 0.1)
+    ax.set_ylim(y_min - 0.2, y_max + 0.2) # Margin for attacking arrow
+    ax.set_aspect('equal', adjustable='box')
+
+    # Pitch background
+    ax.add_patch(patches.Rectangle((x_min, y_min), 2, y_max - y_min, facecolor='#f4f4f4', zorder=0))
+
+    # Pitch lines
+    line_color = 'black'
+    line_width = 2
+
+    # Outer lines
+    ax.plot([x_min, x_max], [y_min, y_min], color=line_color, linewidth=line_width, zorder=1)
+    ax.plot([x_min, x_max], [y_max, y_max], color=line_color, linewidth=line_width, zorder=1)
+    ax.plot([x_min, x_min], [y_min, y_max], color=line_color, linewidth=line_width, zorder=1)
+    ax.plot([x_max, x_max], [y_min, y_max], color=line_color, linewidth=line_width, zorder=1)
+
+    # Halfway line
+    ax.plot([0, 0], [y_min, y_max], color=line_color, linewidth=line_width, zorder=1)
+
+    # Center circle and spot
+    center_circle = patches.Circle((0, 0), radius=0.174, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1)
+    center_spot = patches.Circle((0, 0), radius=0.01, color=line_color, zorder=1)
+    ax.add_patch(center_circle)
+    ax.add_patch(center_spot)
+
+    # Penalty areas (proportions based on a standard 105x68m pitch)
+    pa_width_prop = 40.3 / 68
+    pa_depth_prop = 16.5 / 105
+    pa_width = pa_width_prop * (y_max - y_min)
+    pa_depth = pa_depth_prop * (x_max - x_min)
+    
+    # Right penalty area
+    ax.add_patch(patches.Rectangle((x_max - pa_depth, -pa_width / 2), pa_depth, pa_width, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1))
+    # Left penalty area
+    ax.add_patch(patches.Rectangle((x_min, -pa_width / 2), pa_depth, pa_width, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1))
+
+    # Goal areas
+    ga_width_prop = 18.32 / 68
+    ga_depth_prop = 5.5 / 105
+    ga_width = ga_width_prop * (y_max - y_min)
+    ga_depth = ga_depth_prop * (x_max - x_min)
+
+    # Right goal area
+    ax.add_patch(patches.Rectangle((x_max - ga_depth, -ga_width / 2), ga_depth, ga_width, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1))
+    # Left goal area
+    ax.add_patch(patches.Rectangle((x_min, -ga_width / 2), ga_depth, ga_width, edgecolor=line_color, facecolor='none', linewidth=line_width, zorder=1))
+    
+    # Penalty spots
+    penalty_spot_dist_prop = (11 / 105) * 2
+    ax.add_patch(patches.Circle((x_max - penalty_spot_dist_prop, 0), 0.01, color=line_color, zorder=1))
+    ax.add_patch(patches.Circle((x_min + penalty_spot_dist_prop, 0), 0.01, color=line_color, zorder=1))
+
+    # Remove axis ticks and labels
+    ax.set_xticks([])
+    ax.set_yticks([])
+
+def visualize_throwIns(csv_file, team_name=None, player_name=None):
+    """
+    Loads throw-in data, filters for valid sideline origins,
+    normalizes it to one attacking direction (R->L) *per match* using a robust
+    dx-averaging method, and plots it on a single horizontal soccer pitch.
+    """
+    try:
+        df = pd.read_csv(csv_file)
+        if 'successful' in df.columns:
+            df['successful'] = df['successful'].str.lower()
+        else:
+            print("Error: 'successful' column not found.")
+            return
+
+    except FileNotFoundError:
+        print(f"Error: The file '{csv_file}' was not found.")
+        return
+    except Exception as e:
+        print(f"Error loading CSV: {e}")
+        return
+
+    base_df = df[df['event_type'] == 'throwIn'].copy()
+    if base_df.empty:
+        print("No 'throwIn' events found in the CSV.")
+        return
+
+    # --- FILTER ---
+    sideline_threshold = 0.9
+    original_count = len(base_df)
+    base_df['y1'] = pd.to_numeric(base_df['y1'], errors='coerce')
+    base_df = base_df.dropna(subset=['y1'])
+    base_df = base_df[base_df['y1'].abs() > sideline_threshold].copy()
+    filtered_count = len(base_df)
+    print(f"Filtered for sideline throw-ins: Kept {filtered_count} of {original_count} 'throwIn' events.")
+    if base_df.empty:
+        print(f"No 'throwIn' events found originating from the sidelines (abs(y1) > {sideline_threshold}).")
+        return
+
+    # --- TEAM/PLAYER FILTER ---
+    if player_name:
+        plot_df = base_df[base_df['player_name'] == player_name].copy()
+        main_title = f'Full Match Throw-In Map for {player_name}'
+    elif team_name:
+        plot_df = base_df[base_df['team_name'] == team_name].copy()
+        main_title = f'Full Match Throw-In Map for {team_name}'
+    else:
+        plot_df = base_df.copy()
+        main_title = 'Full Match Throw-In Map for All Teams'
+        
+    if plot_df.empty:
+        if player_name: print(f"No valid sideline throw-ins found for player: {player_name}")
+        elif team_name: print(f"No valid sideline throw-ins found for team: {team_name}")
+        else: print("No valid sideline throw-in data to plot.")
+        return
+        
+    # --- ROBUST PER-MATCH NORMALIZATION (Attack R <- L) ---
+    
+    normalized_dfs = []
+    opponent_teams = plot_df['opponent_team_name'].unique()
+    
+    print("\n--- Normalizing Attack Direction (Goal: R <- L) using avg(dx) ---")
+
+    for opponent in opponent_teams:
+        match_df = plot_df[plot_df['opponent_team_name'] == opponent].copy()
+        
+        # Ensure all coordinates and minute are numeric
+        coord_cols = ['x1', 'x2', 'y1', 'y2', 'minute']
+        for col in coord_cols:
+            match_df[col] = pd.to_numeric(match_df[col], errors='coerce')
+        match_df = match_df.dropna(subset=coord_cols)
+
+        if match_df.empty:
+            print(f"Skipping normalization for '{opponent}': No valid coordinate data.")
+            continue
+
+        # We add .copy() to avoid SettingWithCopyWarning
+        first_half_throws = match_df[match_df['minute'] <= 45].copy()
+        
+        first_half_is_L_R = None # L->R attack = True, R->L attack = False
+
+        if not first_half_throws.empty:
+            # Calculate average x-direction
+            first_half_throws['dx'] = first_half_throws['x2'] - first_half_throws['x1']
+            avg_dx = first_half_throws['dx'].mean()
+            
+            if not pd.isna(avg_dx):
+                # If avg_dx > 0, ball is moving right (L->R attack)
+                first_half_is_L_R = (avg_dx > 0)
+            
+        if first_half_is_L_R is None:
+            # Fallback to 2nd half if 1st half had no data or avg_dx was NaN
+            second_half_throws = match_df[match_df['minute'] > 45].copy()
+            
+            if not second_half_throws.empty:
+                second_half_throws['dx'] = second_half_throws['x2'] - second_half_throws['x1']
+                avg_dx_2h = second_half_throws['dx'].mean()
+                
+                if not pd.isna(avg_dx_2h):
+                    # If 2nd half is R->L (avg_dx < 0), 1st half must have been L->R
+                    first_half_is_L_R = (avg_dx_2h < 0)
+                else:
+                    print(f"Skipping normalization for '{opponent}': Could not determine direction (2H).")
+                    continue # Skip this match
+            else:
+                print(f"Skipping normalization for '{opponent}': No throw-in data at all.")
+                continue # Skip this match
+
+        # These are all coordinates to flip for a 180-degree rotation
+        coords_to_flip = ['x1', 'x2', 'y1', 'y2']
+
+        # We want all attacks to be R <- L
+        if first_half_is_L_R:
+            # Case 1: Attack was L->R. Flip 1st half. 2nd half is already R->L.
+            print(f"Match vs '{opponent}': L->R attack detected. Flipping 1st half.")
+            mask = match_df['minute'] <= 45
+            match_df.loc[mask, coords_to_flip] *= -1
+        else:
+            # Case 2: Attack was R->L. 1st half is correct. Flip 2nd half (L->R) to R->L.
+            print(f"Match vs '{opponent}': R->L attack detected. Flipping 2nd half.")
+            mask = match_df['minute'] > 45
+            match_df.loc[mask, coords_to_flip] *= -1
+            
+        normalized_dfs.append(match_df)
+
+    if not normalized_dfs:
+        print("No data left after normalization attempt.")
+        return
+
+    # Combine all normalized matches back into one DataFrame
+    plot_df = pd.concat(normalized_dfs)
+    
+    print("--------------------------------------------------")
+
+
+    # --- PLOTTING ---
+    
+    WIDTH_SCALE = 68 / 105
+    fig, ax = plt.subplots(1, 1, figsize=(12 / WIDTH_SCALE, 12))
+    fig.patch.set_facecolor('white')
+    
+    draw_pitch(ax)
+    ax.set_title(main_title, fontsize=20, fontweight='bold', pad=20)
+
+    # Add single attacking direction indicator (pointing R <- L)
+    y_max = 1 * WIDTH_SCALE
+    ax.text(0, y_max + 0.12, 'Attacking Direction', ha='center', va='center', fontsize=12, fontweight='bold')
+    attack_arrow = patches.FancyArrowPatch(
+        (0.6, y_max + 0.08), (-0.6, y_max + 0.08), # R -> L
+        arrowstyle='->', mutation_scale=30, color='black', lw=2
+    )
+    ax.add_patch(attack_arrow)
+    
+
+    # Plot all throw-ins from the filtered dataframe
+    plot_df = plot_df.dropna(subset=['x1', 'y1', 'x2', 'y2', 'successful'])
+
+    for _, row in plot_df.iterrows():
+        start_x, start_y = row['x1'], row['y1'] * WIDTH_SCALE
+        end_x, end_y = row['x2'], row['y2'] * WIDTH_SCALE
+        success = str(row['successful']).strip()
+
+        if success == 'yes':
+            color = 'green'
+            pass_style = '-'
+        elif success == 'no':
+            color = 'red'
+            pass_style = '--'
+        else:
+            continue
+
+        arrow = patches.FancyArrowPatch(
+            (start_x, start_y), 
+            (end_x, end_y), 
+            arrowstyle='->', 
+            mutation_scale=15, 
+            color=color,
+            linestyle=pass_style,
+            alpha=0.7,
+            linewidth=1.5
+        )
+        ax.add_patch(arrow)
+
+    # Create custom legend handles
+    success_throwin_legend = plt.Line2D([0], [0], color='green', lw=2, label='Successful Throw-In')
+    fail_throwin_legend = plt.Line2D([0], [0], color='red', lw=2, linestyle='--', label='Unsuccessful Throw-In')
+    fig.legend(handles=[success_throwin_legend, fail_throwin_legend], loc='upper right', bbox_to_anchor=(0.95, 0.92), fontsize=12)
+
+    # Adjust layout, save, and show the plot
+    plt.tight_layout()
+    plt.savefig('sarmiento_throwin_map_normalized_v3.png', dpi=300, bbox_inches='tight')
+    print("Fully normalized throw-in map saved as 'sarmiento_throwin_map_normalized_v3.png'")
+
+if __name__ == '__main__':
+    # --- IMPORTANT ---
+    # Change this path to point to your CSV file
+    # I am using the troubleshoot file you provided
+    csv_filename = '/Users/gustavoortiz/Downloads/LateralesSarmientodel.csv' 
+    
+    team_to_visualize = 'Sarmiento' 
+    player_to_visualize = None
+    
+    # Supress SettingWithCopyWarning
+    with warnings.catch_warnings():
+        try:
+            warnings.simplefilter("ignore", pd.errors.SettingWithCopyWarning)
+        except AttributeError:
+             warnings.simplefilter("ignore", Warning) # Fallback
+            
+        visualize_throwIns(csv_filename, team_name=team_to_visualize, player_name=player_to_visualize)
